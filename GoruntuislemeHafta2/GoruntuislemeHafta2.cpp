@@ -1,70 +1,51 @@
 ﻿#include <opencv2/opencv.hpp>
 #include <iostream>
-#include <vector>
-#include <thread>
-#include <chrono>
 
 using namespace cv;
 using namespace std;
 
-void quantizeImage(Mat image, int bits) {
-    const uchar mask = static_cast<uchar>(0xFF << (8 - bits));
-    for (int i = 0; i < image.rows; i++) {
-        uchar* p = image.ptr<uchar>(i);
-        for (int j = 0; j < image.cols; j++)
-            p[j] &= mask;
-    }
-}
-
-void runTest(const Mat& original, int num_threads) {
-    Mat image = original.clone();
-    auto start = chrono::high_resolution_clock::now();
-
-    vector<thread> threads;
-    int rows_per_thread = image.rows / num_threads;
-
-    for (int i = 0; i < num_threads; ++i) {
-        int start_row = i * rows_per_thread;
-        int height = (i == num_threads - 1) ? (image.rows - start_row) : rows_per_thread;
-
-        Mat roi = image(Rect(0, start_row, image.cols, height));
-        threads.emplace_back(quantizeImage, roi, 4);
-    }
-
-    for (auto& t : threads) {
-        t.join();
-    }
-
-    auto end = chrono::high_resolution_clock::now();
-    auto duration = chrono::duration_cast<chrono::microseconds>(end - start).count();
-
-    cout << num_threads << " Thread (Is parcacigi) ile sure:\t" << duration << " mikrosaniye\n";
-}
-
 int main() {
-    Mat original = imread("image1.jpeg", IMREAD_GRAYSCALE);
-    if (original.empty()) {
-        cerr << "Hata: image1.jpeg bulunamadi!" << endl;
+    // 1. Görüntüyü gri tonlamalı oku
+    Mat img = imread("image1.jpeg", IMREAD_GRAYSCALE);
+    if (img.empty()) {
+        cerr << "Gorsel bulunamadi!" << endl;
         return -1;
     }
 
-    cout << "--- COK CEKIRDEKLI PERFORMANS TESTI BASLIYOR ---\n";
-    cout << "Gorsel Boyutu: " << original.cols << "x" << original.rows << " piksel\n";
+    // 2. Histogram değişkenlerini ayarla
+    int histSize = 256; 
+    float range[] = { 0, 256 };
+    const float* histRange = { range };
+    bool uniform = true, accumulate = false;
 
-    unsigned int max_threads = thread::hardware_concurrency();
-    cout << "Sisteminizdeki maksimum mantiksal cekirdek sayisi: " << max_threads << "\n\n";
+    Mat hist;
 
-    vector<int> test_threads = { 1, 2, 4, 8 };
+    // 3. Histogramı hesapla
+    calcHist(&img, 1, 0, Mat(), hist, 1, &histSize, &histRange, uniform, accumulate);
 
-    if (find(test_threads.begin(), test_threads.end(), max_threads) == test_threads.end() && max_threads > 0) {
-        test_threads.push_back(max_threads);
+    // 4. Histogram grafiğini çizmek için boş bir tuval (görüntü) oluştur
+    int hist_w = 512, hist_h = 400;
+    int bin_w = cvRound((double)hist_w / histSize);
+    Mat histImage(hist_h, hist_w, CV_8UC3, Scalar(0, 0, 0));
+
+    // 5. Histogram değerlerini grafiğe sığacak şekilde normalize et (ölçeklendir)
+    normalize(hist, hist, 0, histImage.rows, NORM_MINMAX, -1, Mat());
+
+    // 6. Çizgi çizerek grafiği oluştur
+    for (int i = 1; i < histSize; i++) {
+        line(histImage,
+            Point(bin_w * (i - 1), hist_h - cvRound(hist.at<float>(i - 1))),
+            Point(bin_w * (i), hist_h - cvRound(hist.at<float>(i))),
+            Scalar(255, 0, 0), 2, 8, 0);
     }
 
-    for (int threads : test_threads) {
-        runTest(original, threads);
-    }
+    // 7. Görüntüleri ekranda göster
+    imshow("Orijinal Gorsel", img);
+    imshow("Histogram Grafigi", histImage);
 
-    cout << "\nTest tamamlandi. Sonuclari inceleyebilirsiniz." << endl;
+    // Ekranda pencerelerin açık kalması için bir tuşa basılmasını bekle
+    cout << "Grafikler ekranda acildi. Pencereleri kapatmak icin bir tusa basin..." << endl;
+    waitKey(0);
 
     return 0;
 }
